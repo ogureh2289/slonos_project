@@ -1,0 +1,40 @@
+import os
+from typing import Dict
+from groq import Groq
+
+class AetherService:
+    def __init__(self):
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError(" Не найден GROQ_API_KEY!")
+        self.client = Groq(api_key=api_key)
+        print(" Llama3 готов к работе!")
+
+    def generate_answer(self, question: str) -> Dict:
+        system_prompt = """Ты — Aether, экспертный AI-компаньон для изучения Python.
+Правила:
+- Отвечай на том же языке что и вопрос (русский или английский)
+- Давай рабочие примеры кода в блоках ```python
+- Объясняй понятно и структурировано
+- Будь дружелюбным и мотивирующим
+- Если есть несколько подходов — покажи лучший"""
+
+        response = self.client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": question}
+            ],
+            temperature=0.7,
+            max_tokens=1024,
+        )
+
+        return {
+            "answer":                response.choices[0].message.content,
+            "sources":               [],
+            "related_topics":        [],
+            "recommended_resources": []
+        }
+
+
+TinyLlamaService = AetherService

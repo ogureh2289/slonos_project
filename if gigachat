@@ -1,0 +1,113 @@
+import re
+import os
+from typing import List, Dict
+from gigachat import GigaChat
+from gigachat.models import Chat, Messages, MessagesRole
+
+from .database import DatabaseManager
+
+
+class AetherService:
+    def __init__(self):
+        api_key = os.environ.get("GIGACHAT_API_KEY")
+        if not api_key:
+            raise ValueError(" Не найден GIGACHAT_API_KEY!")
+
+        self.api_key = api_key
+        self.db = DatabaseManager()
+        print("GigaChat готов к работе!")
+
+    def is_python_related(self, question: str) -> bool:
+        keywords = [
+            'python', 'питон', 'пайтон', 'код', 'программирование',
+            'функция', 'класс', 'объект', 'метод', 'библиотека',
+            'django', 'flask', 'pandas', 'numpy', 'алгоритм',
+            'переменная', 'цикл', 'условие', 'список', 'словарь',
+            'import', 'def', 'class', 'print', 'input',
+            'debug', 'ошибка', 'исключение', 'try', 'except',
+            'async', 'await', 'asyncio', 'fastapi', 'streamlit',
+            'pip', 'virtual', 'декоратор', 'генератор', 'итератор',
+            'lambda', 'map', 'filter', 'enumerate', 'zip',
+            'как работает', 'как написать', 'как использовать',
+            'что такое', 'зачем', 'пример', 'синтаксис',
+            'tuple', 'set', 'dict', 'string', 'int', 'float',
+            'модуль', 'пакет', 'pytest', 'unittest',
+            'sqlalchemy', 'requests', 'beautifulsoup', 'selenium',
+            'tensorflow', 'pytorch', 'scikit', 'matplotlib', 'seaborn',
+            'наследование', 'полиморфизм', 'инкапсуляция', 'абстракция',
+            'рекурсия', 'сортировка', 'поиск', 'граф', 'дерево'
+        ]
+        return any(k in question.lower() for k in keywords)
+
+    def get_resources_for_question(self, question: str) -> List[Dict]:
+        words = re.findall(r'\w+', question.lower())
+        relevant = []
+        seen = set()
+        for word in words:
+            if len(word) > 3:
+                for r in self.db.search_sites(query=word):
+                    key = (r['type'], r['id'])
+                    if key not in seen:
+                        seen.add(key)
+                        relevant.append(r)
+        if not relevant:
+            relevant = self.db.get_all_resources()[:4]
+        return relevant[:4]
+
+    def generate_answer(self, question: str) -> Dict:
+        if not self.is_python_related(question):
+            return {
+                "answer": "Извините, я специализируюсь только на вопросах по Python! 🐍",
+                "sources": [],
+                "related_topics": [],
+                "recommended_resources": []
+            }
+
+        resources = self.get_resources_for_question(question)
+
+        system_prompt = """Ты экспертный AI-компаньон для изучения Python.
+Отвечай ТОЛЬКО на вопросы связанные с Python и программированием.
+Правила:
+- Отвечай на том же языке что и вопрос (русский или английский)
+- Давай рабочие примеры кода в блоках ```python
+- Объясняй понятно и структурировано
+- Будь дружелюбным и мотивирующим
+- Если есть несколько подходов — покажи лучший"""
+
+        with GigaChat(
+            credentials=self.api_key,
+            verify_ssl_certs=False
+        ) as giga:
+            response = giga.chat(Chat(
+                messages=[
+                    Messages(role=MessagesRole.SYSTEM, content=system_prompt),
+                    Messages(role=MessagesRole.USER,   content=question)
+                ],
+                temperature=0.7,
+                max_tokens=1024
+            ))
+
+        answer = response.choices[0].message.content
+
+        recommended = [{
+            "type":        r.get('type'),
+            "title":       r['title'],
+            "description": r['description'],
+            "link":        r.get('link') or r.get('url', ''),
+            "level":       r.get('level', ''),
+            "category":    r.get('category', '')
+        } for r in resources[:3]]
+
+        related = list(set([
+            t for r in resources for t in r.get('topics', [])
+        ]))[:5]
+
+        return {
+            "answer":                answer,
+            "sources":               resources[:3],
+            "related_topics":        related,
+            "recommended_resources": recommended
+        }
+
+
+TinyLlamaService = AetherService
